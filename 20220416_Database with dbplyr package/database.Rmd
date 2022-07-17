@@ -1,0 +1,112 @@
+---
+title: Use database through dbplyr package
+author: 'Jinghong Zeng'
+date: '2022-04-16'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	error = FALSE,
+	pacman::p_load(tidyverse, magrittr)
+)
+```
+
+Recently I learned a little about `dbplyr`, a package in R that can do data manipulation based on database and common `dplyr` commands. This approach would be convenient if we are going to work on a very large data set. And I find it quite interesting to work with database.
+
+I use an example to illustrate how `dbplyr` can be used for data tasks. The example is a data set related to hand-written numbers, 0-9. Each number is placed in a 28x28 matrix where each entry is a pixel to indicate how much grey there is, so as to indicate if and in what degree the number crosses this entry. So each hand-written number has 28x28 = 784 pixels. In the data set, the first column is the hand-written number and the other variables are the degree of grey in 784 pixels. A higher value means more grey.
+
+The data set can be downloaded like this:
+
+```{r eval=FALSE}
+mnist_raw <- read_csv("https://pjreddie.com/media/files/mnist_train.csv", col_names = FALSE)
+```
+
+I got a proxy issue when downloading this file from RStudio, so I pasted this link in the browser and this file can be downloaded directly as well. 
+
+```{r}
+# Load the data
+load("mnist.RData")
+# Look at the first row, which is 5
+head(mnist_raw[, 1:10], 1)
+# How big this data set is?
+object.size(mnist_raw) %>% format(units = "MB")
+# Dimension of the data
+dim(mnist_raw)
+# Convert the data into long format
+mnist_raw %<>% 
+  pivot_longer(cols = !X1, names_to = "Entry", values_to = "Pixel", names_prefix = "X", names_transform = list(Entry = as.integer))
+# Dimension of the converted data
+dim(mnist_raw)
+# How big this converted data is?
+object.size(mnist_raw) %>% format(units = "MB")
+```
+
+`dbplyr` is installed in `tidyverse` package. To set up a connection to the database, we can choose one from many backends. Here I use an in-memory SQLite database, which does not require database authentication.
+
+After setting up a database and the data in the database, the data object now is very small! 
+
+```{r}
+# Set up SQL database connection
+con <- DBI::dbConnect(RSQLite::SQLite(), ":memory:")
+
+# Send data into this database
+copy_to(con, mnist_raw, overwrite = TRUE)
+
+# Retrieve the data from the database
+mnist <- tbl(con, "mnist_raw")
+# How big the data is now?
+object.size(mnist) %>% format(units = "MB")
+# Look at the data object
+mnist
+```
+
+I first create a label and show the SQL code under the hood. The query will not be executed until I ask it to return the result.
+
+```{r}
+# Write a query to create a label
+query1 <- mnist %>%
+  # x is the row index, y is the column index
+  mutate(label = X1) %>%
+  dplyr::select(-X1)
+  
+# See the SQL code behind the query
+query1 %>% explain()
+
+# Execute the query and fetch the result
+result1 <- query1 %>% collect()
+result1
+```
+
+Then I want to see how much grey there is over all the pixels for each number.
+
+```{r}
+# Write a query
+query2 <- query1 %>%
+  group_by(label) %>%
+  summarise(averagegrey = mean(Pixel, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(averagegrey))
+  
+# Execute a query
+result2 <- query2 %>% collect()
+result2
+```
+
+Surprisingly, 0 has the highest average grey over all the pixels. I thought 8 or 9 would cross more entries. Maybe people draw 0 more heavily?
+
+Common `dplyr` commands can be applied on the data in the database. But not all the commands are applicable. So I find it frustrating that we cannot do any data task based on database in R. Hope in the future `dbplyr` can provide more functions.
+
+Finally, close the database connection.
+
+```{r}
+DBI::dbDisconnect(con)
+```
+
+
+### Reference
+
+Wickham H. et al. dbplyr. https://dbplyr.tidyverse.org/
+
+Robinson D. Exploring handwritten digit classification: a tidy analysis of the MNIST dataset. http://varianceexplained.org/r/digit-eda/
