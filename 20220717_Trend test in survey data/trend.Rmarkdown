@@ -1,0 +1,25 @@
+---
+title: Trend test in survey data
+author: 'Jinghong Zeng'
+date: '2022-07-17'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	error = FALSE,
+	pacman::p_load(tidyverse, magrittr)
+)
+```
+
+Brownstein and Cai proposed a new trend test that is useful for survey data. This test is based on linear regression. So I think it involves greater applicability in complex problems. Currently, they proposed study results for logistic model and Cox models. 
+
+I am currently building Cox models for NHANES data and want to do trend tests on the quartiles of the cadmium levels, in order to understand how the cadmium levels affect the mortality risk. For the Cox model, the authors' idea is to build a linear model with the hazard ratio on the ordinal variable discretized from a continuous variable as the response variable and the median of the exposure interval as the independent variable, and then test if the slope is 0. Ho: slope = 0 means there is no trend in the hazard ratio by this exposure. Several methods are discussed with respect to power and Type I error. I prefer the sixth and ninth methods where weights are used and whose power is high.
+
+
+
+### Reference
+
+Brownstein, N.C., Cai, J. Tests of trend between disease outcomes and ordinal covariates discretized from underlying continuous variables: simulation studies and applications to NHANES 2007–2008. BMC Med Res Methodol 19, 2 (2019). https://doi.org/10.1186/s12874-018-0630-7
