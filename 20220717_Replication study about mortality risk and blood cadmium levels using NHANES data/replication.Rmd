@@ -1,0 +1,394 @@
+---
+title: "Replication study: Association between the blood cadmium level and Alzheimer's disease mortality risk in older US adults from NHANES data"
+author: "Jinghong Zeng"
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	pacman::p_load(here, readr, tidyverse, magrittr, haven, survey, survival, mice, naniar, tableone, xtable)
+)
+```
+
+
+## Introduction
+
+The goal is to replicate the study on the association between the blood cadmium level and Alzheimer's disease mortality risk in older US adults, carried out in the reference paper. The plan is to replicate the descriptive table (table 1), Model 1 (table 2 - Model 1) and K-M survival curves (figure 1). Model 2 will not be replicated.
+
+
+## Data
+
+### Source
+
+Data are downloaded from [NHANES 1999-2004](https://wwwn.cdc.gov/nchs/nhanes/Default.aspx) and [NHANES (1999–2004) Linked Mortality Public File](https://www.cdc.gov/nchs/data-linkage/mortality-public.htm). 
+
+The outcome of interest is the survival status about whether the person is dead from Alzheimer's disease. The exposure of interest is the blood cadmium level. Other baseline covariates are age, sex, ethnicity, education, family income, smoking status, serum cotinine. Data for the outcome come from NHANES (1999–2004) Linked Mortality Public File, while data for the other variables come from NHANES 1999–2004.
+
+2001-2002 cadmium and cotinine measures occurred twice. The paper does not mention how to deal with double measures. Hence, only the primary exam data is used. Smoking about cigarette use is sourced. There are different types of smoking data, but the paper only mentions cigarette smoking. Data come from .
+
+```{r}
+# read in demographic, laboratory and smoking data
+# (variable: exposure, covariates)
+lab1999 <- read_xpt(here("data", "1999_2000_cadmium_LAB06.xpt"))
+lab2001 <- read_xpt(here("data", "2001_2002_cadmium_LAB06.xpt"))
+lab2003 <- read_xpt(here("data", "2003_2004_cadmium_LAB06.xpt"))
+lab2003_cotinine <- read_xpt(here("data", "2003_2004_cotinine_LAB06.xpt"))
+
+demo1999 <- read_xpt(here("data", "1999_2000_demographics.xpt"))
+demo2001 <- read_xpt(here("data", "2001_2002_demographics.xpt"))
+demo2003 <- read_xpt(here("data", "2003_2004_demographics.xpt"))
+
+
+smoke1999 <- read_xpt(here("data", "1999_2000_smoking_SMQ.xpt"))
+smoke1999_2 <- read_xpt(here("data", "1999_2000_smoking_SMQ2.xpt"))
+smoke2001 <- read_xpt(here("data", "2001_2002_smoking_SMQ.xpt"))
+smoke2001_2 <- read_xpt(here("data", "2001_2002_smoking_SMQ2.xpt"))
+smoke2003 <- read_xpt(here("data", "2003_2004_smoking_SMQ.xpt"))
+smoke2003_2 <- read_xpt(here("data", "2003_2004_smoking_SMQ2.xpt"))
+
+# dim(lab1999)
+# dim(demo1999)
+# dim(smoke1999)
+
+# dim(lab2001)
+# dim(demo2001)
+# dim(smoke2001)
+
+# dim(lab2003)
+# dim(demo2003)
+# dim(smoke2003)
+
+# demographic data contains all the sample person in a given survey cycle
+```
+
+```{r}
+# read in mortality data
+# (variable: outcome)
+
+mort1999 <- read_fwf(file = here("data", "NHANES_1999_2000_MORT_2019_PUBLIC.dat"),
+                col_types = "iiiiiiii",
+                fwf_cols(SEQN = c(1,6),
+                         eligstat = c(15,15),
+                         mortstat = c(16,16),
+                         ucod_leading = c(17,19),
+                         diabetes = c(20,20),
+                         hyperten = c(21,21),
+                         permth_int = c(43,45),
+                         permth_exm = c(46,48)
+                ),
+                na = c("", ".")
+)
+
+# UCOD_LEADING: Underlying Cause of Death
+table(mort1999$ucod_leading, useNA="ifany")
+# 1 = Diseases of heart (I00-I09, I11, I13, I20-I51)
+# 2 = Malignant neoplasms (C00-C97)
+# 3 = Chronic lower respiratory diseases (J40-J47)
+# 4 = Accidents (unintentional injuries) (V01-X59, Y85-Y86)
+# 5 = Cerebrovascular diseases (I60-I69)
+# 6 = Alzheimer's disease (G30)
+# 7 = Diabetes mellitus (E10-E14)
+# 8 = Influenza and pneumonia (J09-J18)
+# 9 = Nephritis, nephrotic syndrome and nephrosis (N00-N07, N17-N19, N25-N27)
+# 10 = All other causes (residual)
+# <NA> = Ineligible, under age 18, assumed alive, or no cause of death data available
+
+mort2001 <- read_fwf(file = here("data", "NHANES_2001_2002_MORT_2019_PUBLIC.dat"),
+                col_types = "iiiiiiii",
+                fwf_cols(SEQN = c(1,6),
+                         eligstat = c(15,15),
+                         mortstat = c(16,16),
+                         ucod_leading = c(17,19),
+                         diabetes = c(20,20),
+                         hyperten = c(21,21),
+                         permth_int = c(43,45),
+                         permth_exm = c(46,48)
+                ),
+                na = c("", ".")
+)
+
+mort2003 <- read_fwf(file = here("data", "NHANES_2003_2004_MORT_2019_PUBLIC.dat"),
+                col_types = "iiiiiiii",
+                fwf_cols(SEQN = c(1,6),
+                         eligstat = c(15,15),
+                         mortstat = c(16,16),
+                         ucod_leading = c(17,19),
+                         diabetes = c(20,20),
+                         hyperten = c(21,21),
+                         permth_int = c(43,45),
+                         permth_exm = c(46,48)
+                ),
+                na = c("", ".")
+)
+
+# when mortality status = 1, meaning the person is dead, the cause of death is coded. when mortality status = 0, meaning the person is alive, the cause of death is NA. 
+```
+
+A note on where to find the variables:
+
+1. Cadmium, cotinine (=serum cotinine, measured by serum) from `Lab data - Cadmium, Lead, Mercury, Cotinine & Nutritional Biochemistries` or `Lab data - Cotinine - Serum`,
+
+2. Age, sex, ethnicity, education, family income from `Demo data - Demo variables`,
+
+3. Smoking from `Questionnaire data - Smoking - Cigarette/Tobacco Use - Adult` and `Smoking - Adult Recent Tobacco Use & Youth Cigarette/Tobacco Use`,
+
+4. BP from `exam data - Blood Pressure`,
+
+5. Hypertension from `Questionnaire data - Medical Conditions - MCQ100/110`,
+
+6. Insulin from `Questionnaire data - Diabetes`,
+
+7. Fasting glucose - `Lab data - Plasma Fasting Glucose, Serum C-peptide & Insulin`,
+
+8. BMI - `Exam data - Body Measures`,
+
+9. rice eaten in past 30 days only available in 2003-2004, not available for previous years.
+
+
+### Tidying
+
+The sourced data sets are re-tidied to retain all the sample persons, so that the complete data can be used to define the survey design object and variance estimates would be more reliable. This new tidying process produces the same complete data for the adults >= 60 years old as the former tidying/exploration process, with the same missing patterns in the same variables.
+
+```{r}
+# combine data
+data1999 <- demo1999 %>%
+  left_join(smoke1999, by = "SEQN") %>%
+  left_join(smoke1999_2, by = "SEQN") %>%
+  left_join(lab1999, by = "SEQN") %>%
+  left_join(mort1999, by = "SEQN")
+data2001 <- demo2001 %>%
+  left_join(smoke2001, by = "SEQN") %>%
+  left_join(smoke2001_2, by = "SEQN") %>%
+  left_join(lab2001, by = "SEQN") %>%
+  left_join(mort2001, by = "SEQN")
+data2003 <- demo2003 %>%
+  left_join(smoke2003, by = "SEQN") %>%
+  left_join(smoke2003_2, by = "SEQN") %>%
+  left_join(lab2003, by = "SEQN") %>%
+  left_join(lab2003_cotinine, by = "SEQN") %>%
+  left_join(mort2003, by = "SEQN")
+
+mergedata <- data1999 %>%
+  bind_rows(data2001) %>%
+  bind_rows(data2003)
+# 
+# dim(data1999)
+# dim(data2001)
+# dim(data2003)
+# dim(mergedata)
+
+# define new attributes
+mergedata %<>%
+  mutate(dead = case_when(ucod_leading == 6 ~ 1, ucod_leading != 6 | mortstat == 0 ~ 0),
+         time = permth_exm,
+        cadmium = LBXBCD, 
+        cadmium_log = log(cadmium),
+        cotinine = LBXCOT, 
+        age = RIDAGEYR, 
+        gender = ifelse(RIAGENDR == 1, "Male", "Female") %>% as.factor() %>% relevel(ref = "Male"), 
+        ethnicity = case_when(RIDRETH1 %in% 1:2 ~ "Hispanic", RIDRETH1 == 3 ~ "White", RIDRETH1 == 4 ~ "Black", RIDRETH1 == 5 ~ "Other") %>% factor(., levels = c("White", "Black", "Hispanic", "Other")), 
+        education = case_when(DMDEDUC == 1 ~ "Less than high school", DMDEDUC == 2 ~ "High school", DMDEDUC == 3 ~ "College or higher") %>% factor(., levels = c("Less than high school", "High school", "College or higher"), ordered = TRUE), 
+        income = case_when(INDFMINC %in% c(1:4, 13) ~ "Less than $20,000", INDFMINC %in% 5:12 ~ "$20,000 or more") %>% factor(., levels = c("Less than $20,000", "$20,000 or more"), ordered = TRUE),
+        # smoke = case_when(SMQ040 %in% 1:2 ~ "Current smoker", SMQ040 == 3 & SMQ050Q >= 1 & SMQ050Q < 100 ~ "Former smoker", (SMQ040 == 3 & SMQ050Q >= 100) | SMQ620 == 2 ~ "Never smoker") %>% factor(., levels = c("Never smoker", "Current smoker", "Former smoker")),
+        smoke = case_when(SMQ040 %in% 1:2 ~ "Current smoker", SMQ040 == 3 & SMQ020 == 1 ~ "Former smoker", SMQ020 == 2 ~ "Never smoker") %>% factor(., levels = c("Never smoker", "Current smoker", "Former smoker")),
+        wt6yr = case_when(SDDSRVYR %in% 1:2 ~ 2/3 * WTMEC4YR, SDDSRVYR == 3 ~ 1/3 * WTMEC2YR),
+        cadmium_qr = case_when(cadmium <= 0.3 ~ "Quartile1", cadmium > 0.3 & cadmium <= 0.4 ~ "Quartile2", cadmium > 0.4 & cadmium <= 0.6 ~ "Quartile3", cadmium > 0.6 ~ "Quartile4") %>% factor(., levels = c("Quartile1", "Quartile2", "Quartile3", "Quartile4")),
+        # cadmium_qr = case_when(cadmium <= 0.3 ~ "Quartile 1 (≤0.3)", cadmium > 0.3 & cadmium <= 0.4 ~ "Quartile 2 (0.3–0.4)", cadmium > 0.4 & cadmium <= 0.6 ~ "Quartile 3 (0.4–0.6)", cadmium > 0.6 ~ "Quartile 4 (>0.6)") %>% factor(., levels = c("Quartile 1 (≤0.3)", "Quartile 2 (0.3–0.4)", "Quartile 3 (0.4–0.6)", "Quartile 4 (>0.6)"), ordered = TRUE),
+       cotinine_qr = case_when(cotinine <= 0.022 ~ "Q1 (≤0.022)", cotinine >= 0.023 & cotinine <= 0.037 ~ "Q2 (0.023–0.037)", cotinine >= 0.038 & cotinine <= 0.297 ~ "Q3 (0.038–0.297)", cotinine >= 0.3 ~ "Q4 (≥0.30)") %>% factor(., levels = c("Q1 (≤0.022)", "Q2 (0.023–0.037)", "Q3 (0.038–0.297)", "Q4 (≥0.30)"), ordered = TRUE),
+       age_gp = case_when(age <= 69 ~ "60-69", age >= 70 & age <= 79 ~ "70-79", age >= 80 & age <= 89 ~ "80-89") %>% factor(., levels = c("60-69", "70-79", "80-89"), ordered = TRUE),
+        inAnalysis = (age >= 60 & !is.na(dead) & !is.na(cadmium) & !is.na(cotinine) & !is.na(age) & !is.na(gender) & !is.na(ethnicity) & !is.na(education) & !is.na(income) & !is.na(smoke) & !is.na(wt6yr) & !is.na(SDMVPSU) & !is.na(SDMVSTRA)))
+
+# check missing values: same as the former tidying process
+tmp <- mergedata %>%
+  dplyr::select(dead, time, cadmium, cotinine, age, gender, ethnicity, education, income, smoke, wt6yr) %>%
+  filter(age >= 60)
+
+dim(tmp) 
+# 5607 persons, closer to the paper sample size
+summary(tmp)
+
+tmp %>% 
+  filter(!(is.na(dead) | is.na(cadmium))) %>%
+  dim()
+# 4735 persons remained after missing mortality and cadmium levels are excluded, same as in the paper
+
+tmp %>% 
+  filter(!(is.na(dead) | is.na(cadmium))) %>%
+  summary()
+# missing: cotinine 138, education 20, income 200, smoking 11
+
+tmp %>% 
+  na.omit() %>%
+  dim()
+# 4385 persons remained after all the missing values are excluded, greater than sample size in the paper
+```
+
+
+## Survey design
+
+Analytic methods are based on [National Health and Nutrition Examination Survey: Analytic Guidelines, 1999-2010](https://wwwn.cdc.gov/nchs/data/nhanes/analyticguidelines/99-10-analytic-guidelines.pdf).
+
+Sample weights are calculated from table E and in the tidying process. The variable `wt6yr` is the weight variable. The final data is a subsample of the sample, and thus should represent the population >= 60 years old, rather than the entire population. 
+
+The survey design is a cluster design, where the first stage selects PSUs from strata, treated as sampling with replacement.
+
+```{r}
+# define the survey design with all the persons
+nhanes_svy_all <- svydesign(data = mergedata, id = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~wt6yr, nest=TRUE)
+
+# subset the survey object for the subpopulation >= 60 years old
+nhanes_svy <- subset(nhanes_svy_all, inAnalysis)
+```
+
+
+## Descriptive analysis
+
+A log transformation improves the normality of the cadmium level, but the log-transformed cadmium level does not look like Normal.
+
+```{r}
+# log-transform the cadmium level
+mergedata %>%
+  filter(inAnalysis == 1) %>%
+  ggplot() +
+  geom_density(aes(x = cadmium_log, col = "Log-transformed"), trim =  TRUE) +
+  geom_density(aes(x = cadmium, col = "Original"), trim =  TRUE) +
+  guides(color = guide_legend(title = "Cadmium")) +
+  labs(x = "Value", y = "Density", title = "Kernel density estimation")
+```
+
+Descriptive analysis is carried out on the log-transformed cadmium level and the geometric mean of the cadmium level is reported. The sample size in each subgroup is calculated on the sample, while the geometric mean (SE) is calculated on the population. The paper reported in this way, though I think it may be better to report the subgroup sample size on the population. The SE of the geometric mean is calculated through Delta method.
+
+```{r}
+# find the geometric mean of blood cadmium levels by different covariates and test the within group difference of the geometric mean of blood cadmium levels
+# Kruskal-Wallis rank test is used to test if the response variable is distributed differently between groups, based on a chi-square test statistic. H0: the population or superpopulation distributions of the response variable are different between groups
+
+tmpdata <- mergedata %>%
+  filter(inAnalysis == 1)
+
+descrip_one <- function(svyobj, x) {
+  # sample count
+  count <- table(tmpdata[, x]) %>%
+    as.data.frame()
+  colnames(count) = c("var", "No.")
+  
+  # group means are calculated
+  means <- svyby(~cadmium_log, as.formula(paste0("~", x)), svyobj, svymean) %>%
+    as.data.frame() %>%
+    mutate(geomean = round(exp(cadmium_log), 2), geose = round(geomean*se, 2), `Unadjusted mean (SE)` = paste0(geomean, " (", geose, ")")) 
+  
+  # within group difference test
+  diff <- svyranktest(as.formula(paste0("cadmium_log ~ ", x)), svyobj, test = "KruskalWallis")
+  pval <- diff$p.value %>% 
+    as.numeric() %>%
+    round(., 3) %>%
+    ifelse(. < 0.0001, "<.0001", .) %>%
+    as.character()
+
+  means %>%
+    mutate(var = rownames(means), `p-value` = c(pval, rep(NA_character_, nrow(means) - 1))) %>%
+    left_join(count, by = "var") %>%
+    dplyr::select(c(var, `No.`, `Unadjusted mean (SE)`, `p-value`))
+}
+
+(tab1 <- c("age_gp", "gender", "ethnicity", "education", "income", "cotinine_qr", "smoke") %>%
+  map(~descrip_one(nhanes_svy, .)) %>%
+  bind_rows())
+
+# xtable(tab1)
+```
+
+
+
+## Survival analysis
+
+### KM curve
+
+The number of person months of
+follow-up from NHANES Mobile
+Examination Center (MEC) date is used as the survival time. Since the sample weights are calculated based on MEC weights, the MEC follow-up months seem more plausible.
+
+```{r}
+# compute KM curves
+s1 <- svykm(Surv(time, dead) ~ cadmium_qr, design = nhanes_svy)
+
+# Logrank test is used to compare survival distributions 
+s1test <- svylogrank(Surv(time, dead) ~ cadmium_qr, design = nhanes_svy)
+
+# make a KM plot
+plot(s1[[1]], ylim = round(c(0.97, 1), 2), xlim = c(0, 100), bty = "l", lty = "dotted", ylab = "Survival Rate", xlab = "Follow-up (month)", las = 1, yaxt = "n", xaxs = "i", yaxs = "i", main = "Fig 1: blood cadmium")
+axis(2, at = seq(0.97, 1, 0.01), las = 1)
+lines(s1[[2]], ylim = round(c(0.97, 1), 2), xlim = c(0, 100), lty = "dashed")
+lines(s1[[3]], ylim = round(c(0.97, 1), 2), xlim = c(0, 100), lty = "solid")
+lines(s1[[4]], ylim = round(c(0.97, 1), 2), xlim = c(0, 100), lty = "solid", lwd = 1.5)
+legend("bottomleft", paste("Quartile", 1:4), lty = c("dotted", "dashed", "solid", "solid"), lwd = c(rep(1, 3), 1.5), cex = 0.5)
+text(40, 0.985, paste0("p=", round(s1test[[2]][2], 4)), font = 2)
+```
+
+
+### Cox model
+
+```{r}
+# crude HR
+model0 <- svycoxph(Surv(time, dead) ~ cadmium_qr, nhanes_svy)
+
+# adjusted HR
+model1 <- svycoxph(Surv(time, dead) ~ cadmium_qr + age + I(age^2) + gender + ethnicity + education + income + smoke + cotinine, nhanes_svy)
+
+# output
+coxresult <- function(model) {
+  summ <- summary(model)$conf.int[, c("exp(coef)", "lower .95", "upper .95")] %>%
+  round(., 2) %>%
+  as.data.frame() 
+  summ %<>%
+    filter(grepl("cadmium_qr", rownames(summ))) %>%
+  mutate(HR = paste(`exp(coef)`, " (", `lower .95`, "-", `upper .95`, ")")) %>%
+  dplyr::select(HR) %>%
+  rbind("1.00 (ref)", .)
+  rownames(summ) <- c(paste0("Quartile ", 1:4, " (", c("<=0.3", "0.3-0.4", "0.4-0.6", ">0.6"), ")"))
+  summ
+}
+
+hr <- cbind(coxresult(model0), coxresult(model1))
+colnames(hr) <- c("Crude HR (95 % CIs)", "Adjusted HR (95 % CIs)")
+
+# trend test is carried out by the ninth method in the second reference paper
+# the median of the last interval is chosen as (0.6+1)/2
+coxtrend <- function(model) {
+  summ <- summary(model)$coef
+  hr <- summ[grepl("cadmium_qr", rownames(summ)), "exp(coef)"]
+  
+  trenddata <- mergedata %>%
+  filter(inAnalysis == 1 & cadmium_qr != "Quartile1") %>%
+  mutate(n = case_when(cadmium_qr == "Quartile2" ~ sum(cadmium_qr == "Quartile2"), cadmium_qr == "Quartile3" ~ sum(cadmium_qr == "Quartile3"), cadmium_qr == "Quartile4" ~ sum(cadmium_qr == "Quartile4")), hr = case_when(cadmium_qr == "Quartile2" ~ hr[1], cadmium_qr == "Quartile3" ~ hr[2], cadmium_qr == "Quartile4" ~ hr[3]), cadmium_median = case_when(cadmium_qr == "Quartile2" ~ (0.3+0.4)/2, cadmium_qr == "Quartile3" ~ (0.4+0.6)/2, cadmium_qr == "Quartile4" ~ (0.6+1)/2))
+  
+  lm1 <- lm(hr ~ cadmium_median, data = trenddata, weights = trenddata$n)
+  pval <- summary(lm1)$coef[2, "Pr(>|t|)"] %>% round(., 3)
+  pval
+}
+
+coxtrend(model0)
+coxtrend(model1)
+
+(hr %<>% 
+  rbind(., pval = c(coxtrend(model0), coxtrend(model1))))
+
+# xtable(hr)
+```
+
+Compare to the lowest quartile of the cadmium levels, the highest quartile has the biggest hazard ratio estimate, indicating the biggest mortality risk. The hazard ratio is not linearly correlated to the cadmium quartiles, but there is a tendency that the higher the cadmium levels, the greater the mortality risk. The trend tests indicate there is a trend in crude and adjusted hazard ratios with respect to the cadmium levels.
+
+
+
+## Reference
+
+Min, J., Min, K. (2016) Blood cadmium levels and Alzheimer's disease mortality risk in older US adults. Environmental Health. DOI 10.1186/s12940-016-0155-7
+
+Brownstein, N.C., Cai, J. Tests of trend between disease outcomes and ordinal covariates discretized from underlying continuous variables: simulation studies and applications to NHANES 2007–2008. BMC Med Res Methodol 19, 2 (2019). https://doi.org/10.1186/s12874-018-0630-7

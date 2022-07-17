@@ -1,0 +1,78 @@
+\documentclass[11pt]{article}
+\usepackage{hyperref, booktabs, indentfirst}
+\usepackage[left=1in, right=1in, top=0.5in, bottom=1in]{geometry}
+
+\title{Replicated ables}
+
+\author
+{Jinghong Zeng}
+
+\date{}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+\label{firstpage}
+\maketitle
+
+\begin{table}[!htbp]
+\centering
+\caption{Geometric mean (SE) blood cadmium levels of the participants (n = 4064) at baseline with results grouped by demographic characteristics}
+\begin{tabular}{llll}
+  \hline
+  & No. & Unadjusted mean (SE) & $p$-value \\ 
+  \hline
+Age, y &&& \\
+~~~~ 60-69 & 1926 & 0.48 (0.01) & $<$.0001 \\ 
+~~~~ 70-79 & 1455 & 0.50 (0.01) &  \\ 
+~~~~ 80-89 & 1004 & 0.53 (0.01) &  \\ 
+Gender &&& \\
+~~~~ Male & 2183 & 0.47 (0.01) & $<$.0001 \\ 
+~~~~ Female & 2202 & 0.52 (0.01) &  \\ 
+Ethnicity &&& \\
+~~~~White & 2582 & 0.50 (0.01) & 0.001 \\ 
+~~~~ Black & 647 & 0.47 (0.02) &  \\ 
+~~~~  Hispanic & 1045 & 0.48 (0.02) &  \\ 
+~~~~Other & 111 & 0.64 (0.04) &  \\ 
+Education &&& \\
+~~~~Less than high school & 1841 & 0.55 (0.01) & $<$.0001 \\
+~~~~ High school & 1026 & 0.50 (0.02) &  \\ 
+~~~~ College or higher & 1518 & 0.46 (0.01) &  \\ 
+Family income &&& \\
+~~~~Less than \$20,000 & 1780 & 0.56 (0.01) & $<$.0001 \\ 
+~~~~ \$20,000 or more & 2605 & 0.47 (0.01) &  \\ 
+Serum cotinine, ng/mL &&& \\
+~~~~ Q1 ($\leq$0.022) & 1120 & 0.41 (0.01) & $<$.0001 \\ 
+~~~~ Q2 (0.023–0.037) & 1071 & 0.45 (0.01) &  \\ 
+~~~~Q3 (0.038–0.297) & 1111 & 0.43 (0.01) &  \\ 
+~~~~ Q4 ($\geq$0.30) & 1083 & 0.77 (0.02) &  \\ 
+Cigarette smoking &&& \\
+~~~~ Current smoker & 538 & 1.19 (0.04) &  \\ 
+~~~~ Former smoker & 1800 & 0.50 (0.01) &  \\ 
+~~~~ Never smoker & 2047 & 0.40 (0.01) & $<$.0001 \\
+   \hline
+\end{tabular}
+\end{table}
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Hazard ratio (HR) for AD mortality by blood cadmium level at baseline from Model 1}
+\begin{tabular}{lll}
+  \hline
+Blood cadmium level & Crude HR (95 \% CIs) & Adjusted HR (95 \% CIs) \\ 
+  \hline
+Cadmium quartile, $\mu$g/L && \\
+~~~~Quartile 1 ($\leq$0.3) & 1.00 (ref) & 1.00 (ref) \\ 
+~~~~Quartile 2 (0.3-0.4) & 1.62 (0.78-3.37) & 1.50  (0.78-2.89) \\ 
+~~~~Quartile 3 (0.4-0.6) & 1.79 (1.09-2.93) & 1.38  (0.87-2.20) \\ 
+~~~~Quartile 4 ($>$0.6) & 1.60 (0.89-2.88) & 1.66  (0.88-3.12) \\ 
+$p$ value & 0.000 &0.000 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+
+
+
+\end{document}
