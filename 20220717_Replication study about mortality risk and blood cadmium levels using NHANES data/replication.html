@@ -2814,7 +2814,7 @@ other variables come from NHANES 1999–2004.</p>
 <p>2001-2002 cadmium and cotinine measures occurred twice. The paper
 does not mention how to deal with double measures. Hence, only the
 primary exam data is used.</p>
-<pre class="r"><code># read in demographic, laboratory and smoking data
+<pre class="r"><code># read in demographic and laboratory data
 # (variable: exposure, covariates)
 lab1999 &lt;- read_xpt(here(&quot;data&quot;, &quot;1999_2000_cadmium_LAB06.xpt&quot;))
 lab2001 &lt;- read_xpt(here(&quot;data&quot;, &quot;2001_2002_cadmium_LAB06.xpt&quot;))
@@ -2825,25 +2825,14 @@ demo1999 &lt;- read_xpt(here(&quot;data&quot;, &quot;1999_2000_demographics.xpt&
 demo2001 &lt;- read_xpt(here(&quot;data&quot;, &quot;2001_2002_demographics.xpt&quot;))
 demo2003 &lt;- read_xpt(here(&quot;data&quot;, &quot;2003_2004_demographics.xpt&quot;))
 
-
-# smoke1999 &lt;- read_xpt(here(&quot;data&quot;, &quot;1999_2000_smoking_SMQ.xpt&quot;))
-# smoke1999_2 &lt;- read_xpt(here(&quot;data&quot;, &quot;1999_2000_smoking_SMQ2.xpt&quot;))
-# smoke2001 &lt;- read_xpt(here(&quot;data&quot;, &quot;2001_2002_smoking_SMQ.xpt&quot;))
-# smoke2001_2 &lt;- read_xpt(here(&quot;data&quot;, &quot;2001_2002_smoking_SMQ2.xpt&quot;))
-# smoke2003 &lt;- read_xpt(here(&quot;data&quot;, &quot;2003_2004_smoking_SMQ.xpt&quot;))
-# smoke2003_2 &lt;- read_xpt(here(&quot;data&quot;, &quot;2003_2004_smoking_SMQ2.xpt&quot;))
-
 # dim(lab1999)
 # dim(demo1999)
-# dim(smoke1999)
 
 # dim(lab2001)
 # dim(demo2001)
-# dim(smoke2001)
 
 # dim(lab2003)
 # dim(demo2003)
-# dim(smoke2003)
 
 # demographic data contains all the sample person in a given survey cycle</code></pre>
 <pre class="r"><code># read in mortality data
@@ -2941,18 +2930,12 @@ former tidying/exploration process, with the same missing patterns in
 the same variables.</p>
 <pre class="r"><code># combine data
 data1999 &lt;- demo1999 %&gt;%
-  # left_join(smoke1999, by = &quot;SEQN&quot;) %&gt;%
-  # left_join(smoke1999_2, by = &quot;SEQN&quot;) %&gt;%
   left_join(lab1999, by = &quot;SEQN&quot;) %&gt;%
   left_join(mort1999, by = &quot;SEQN&quot;)
 data2001 &lt;- demo2001 %&gt;%
-  # left_join(smoke2001, by = &quot;SEQN&quot;) %&gt;%
-  # left_join(smoke2001_2, by = &quot;SEQN&quot;) %&gt;%
   left_join(lab2001, by = &quot;SEQN&quot;) %&gt;%
   left_join(mort2001, by = &quot;SEQN&quot;)
 data2003 &lt;- demo2003 %&gt;%
-  # left_join(smoke2003, by = &quot;SEQN&quot;) %&gt;%
-  # left_join(smoke2003_2, by = &quot;SEQN&quot;) %&gt;%
   left_join(lab2003, by = &quot;SEQN&quot;) %&gt;%
   left_join(lab2003_cotinine, by = &quot;SEQN&quot;) %&gt;%
   left_join(mort2003, by = &quot;SEQN&quot;)
@@ -2978,14 +2961,11 @@ mergedata %&lt;&gt;%
         ethnicity = case_when(RIDRETH1 %in% 1:2 ~ &quot;Hispanic&quot;, RIDRETH1 == 3 ~ &quot;White&quot;, RIDRETH1 == 4 ~ &quot;Black&quot;, RIDRETH1 == 5 ~ &quot;Other&quot;) %&gt;% factor(., levels = c(&quot;White&quot;, &quot;Black&quot;, &quot;Hispanic&quot;, &quot;Other&quot;)), 
         education = case_when(DMDEDUC == 1 ~ &quot;Less than high school&quot;, DMDEDUC == 2 ~ &quot;High school&quot;, DMDEDUC == 3 ~ &quot;College or higher&quot;) %&gt;% factor(., levels = c(&quot;Less than high school&quot;, &quot;High school&quot;, &quot;College or higher&quot;), ordered = TRUE), 
         income = case_when(INDFMINC %in% c(1:4, 13) ~ &quot;Less than $20,000&quot;, INDFMINC %in% 5:12 ~ &quot;$20,000 or more&quot;) %&gt;% factor(., levels = c(&quot;Less than $20,000&quot;, &quot;$20,000 or more&quot;), ordered = TRUE),
-        # smoke = case_when(SMQ040 %in% 1:2 ~ &quot;Current smoker&quot;, SMQ040 == 3 &amp; SMQ050Q &gt;= 1 &amp; SMQ050Q &lt; 100 ~ &quot;Former smoker&quot;, (SMQ040 == 3 &amp; SMQ050Q &gt;= 100) | SMQ620 == 2 ~ &quot;Never smoker&quot;) %&gt;% factor(., levels = c(&quot;Never smoker&quot;, &quot;Current smoker&quot;, &quot;Former smoker&quot;)),
-        # smoke = case_when(SMQ040 %in% 1:2 ~ &quot;Current smoker&quot;, SMQ040 == 3 &amp; SMQ020 == 1 ~ &quot;Former smoker&quot;, SMQ020 == 2 ~ &quot;Never smoker&quot;) %&gt;% factor(., levels = c(&quot;Never smoker&quot;, &quot;Current smoker&quot;, &quot;Former smoker&quot;)),
         wt6yr = case_when(SDDSRVYR %in% 1:2 ~ 2/3 * WTMEC4YR, SDDSRVYR == 3 ~ 1/3 * WTMEC2YR),
         cadmium_qr = case_when(cadmium &lt;= 0.3 ~ &quot;Quartile1&quot;, cadmium &gt; 0.3 &amp; cadmium &lt;= 0.4 ~ &quot;Quartile2&quot;, cadmium &gt; 0.4 &amp; cadmium &lt;= 0.6 ~ &quot;Quartile3&quot;, cadmium &gt; 0.6 ~ &quot;Quartile4&quot;) %&gt;% factor(., levels = c(&quot;Quartile1&quot;, &quot;Quartile2&quot;, &quot;Quartile3&quot;, &quot;Quartile4&quot;)),
         # cadmium_qr = case_when(cadmium &lt;= 0.3 ~ &quot;Quartile 1 (≤0.3)&quot;, cadmium &gt; 0.3 &amp; cadmium &lt;= 0.4 ~ &quot;Quartile 2 (0.3–0.4)&quot;, cadmium &gt; 0.4 &amp; cadmium &lt;= 0.6 ~ &quot;Quartile 3 (0.4–0.6)&quot;, cadmium &gt; 0.6 ~ &quot;Quartile 4 (&gt;0.6)&quot;) %&gt;% factor(., levels = c(&quot;Quartile 1 (≤0.3)&quot;, &quot;Quartile 2 (0.3–0.4)&quot;, &quot;Quartile 3 (0.4–0.6)&quot;, &quot;Quartile 4 (&gt;0.6)&quot;), ordered = TRUE),
        cotinine_qr = case_when(cotinine &lt;= 0.022 ~ &quot;Q1 (≤0.022)&quot;, cotinine &gt;= 0.023 &amp; cotinine &lt;= 0.037 ~ &quot;Q2 (0.023–0.037)&quot;, cotinine &gt;= 0.038 &amp; cotinine &lt;= 0.297 ~ &quot;Q3 (0.038–0.297)&quot;, cotinine &gt;= 0.3 ~ &quot;Q4 (≥0.30)&quot;) %&gt;% factor(., levels = c(&quot;Q1 (≤0.022)&quot;, &quot;Q2 (0.023–0.037)&quot;, &quot;Q3 (0.038–0.297)&quot;, &quot;Q4 (≥0.30)&quot;), ordered = TRUE),
        age_gp = case_when(age &lt;= 69 ~ &quot;60-69&quot;, age &gt;= 70 &amp; age &lt;= 79 ~ &quot;70-79&quot;, age &gt;= 80 &amp; age &lt;= 89 ~ &quot;80-89&quot;) %&gt;% factor(., levels = c(&quot;60-69&quot;, &quot;70-79&quot;, &quot;80-89&quot;), ordered = TRUE),
-        # inAnalysis = (age &gt;= 60 &amp; !is.na(dead) &amp; !is.na(cadmium) &amp; !is.na(cotinine) &amp; !is.na(age) &amp; !is.na(gender) &amp; !is.na(ethnicity) &amp; !is.na(education) &amp; !is.na(income) &amp; !is.na(smoke) &amp; !is.na(wt6yr) &amp; !is.na(SDMVPSU) &amp; !is.na(SDMVSTRA))
        inAnalysis = (age &gt;= 60 &amp; !is.na(dead) &amp; !is.na(cadmium) &amp; !is.na(cotinine) &amp; !is.na(age) &amp; !is.na(gender) &amp; !is.na(ethnicity) &amp; !is.na(education) &amp; !is.na(income) &amp; !is.na(wt6yr) &amp; !is.na(SDMVPSU) &amp; !is.na(SDMVSTRA)))
 
 # check missing values: same as the former tidying process
