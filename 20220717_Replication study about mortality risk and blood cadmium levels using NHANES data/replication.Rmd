@@ -30,9 +30,9 @@ The goal is to replicate the study on the association between the blood cadmium 
 
 Data are downloaded from [NHANES 1999-2004](https://wwwn.cdc.gov/nchs/nhanes/Default.aspx) and [NHANES (1999–2004) Linked Mortality Public File](https://www.cdc.gov/nchs/data-linkage/mortality-public.htm). 
 
-The outcome of interest is the survival status about whether the person is dead from Alzheimer's disease. The exposure of interest is the blood cadmium level. Other baseline covariates are age, sex, ethnicity, education, family income, smoking status, serum cotinine. Data for the outcome come from NHANES (1999–2004) Linked Mortality Public File, while data for the other variables come from NHANES 1999–2004.
+The outcome of interest is the survival status about whether the person is dead from Alzheimer's disease. The exposure of interest is the blood cadmium level. Other baseline covariates are age, sex, ethnicity, education, family income, serum cotinine. Data for the outcome come from NHANES (1999–2004) Linked Mortality Public File, while data for the other variables come from NHANES 1999–2004.
 
-2001-2002 cadmium and cotinine measures occurred twice. The paper does not mention how to deal with double measures. Hence, only the primary exam data is used. Smoking about cigarette use is sourced. There are different types of smoking data, but the paper only mentions cigarette smoking. Data come from .
+2001-2002 cadmium and cotinine measures occurred twice. The paper does not mention how to deal with double measures. Hence, only the primary exam data is used. 
 
 ```{r}
 # read in demographic, laboratory and smoking data
@@ -47,12 +47,12 @@ demo2001 <- read_xpt(here("data", "2001_2002_demographics.xpt"))
 demo2003 <- read_xpt(here("data", "2003_2004_demographics.xpt"))
 
 
-smoke1999 <- read_xpt(here("data", "1999_2000_smoking_SMQ.xpt"))
-smoke1999_2 <- read_xpt(here("data", "1999_2000_smoking_SMQ2.xpt"))
-smoke2001 <- read_xpt(here("data", "2001_2002_smoking_SMQ.xpt"))
-smoke2001_2 <- read_xpt(here("data", "2001_2002_smoking_SMQ2.xpt"))
-smoke2003 <- read_xpt(here("data", "2003_2004_smoking_SMQ.xpt"))
-smoke2003_2 <- read_xpt(here("data", "2003_2004_smoking_SMQ2.xpt"))
+# smoke1999 <- read_xpt(here("data", "1999_2000_smoking_SMQ.xpt"))
+# smoke1999_2 <- read_xpt(here("data", "1999_2000_smoking_SMQ2.xpt"))
+# smoke2001 <- read_xpt(here("data", "2001_2002_smoking_SMQ.xpt"))
+# smoke2001_2 <- read_xpt(here("data", "2001_2002_smoking_SMQ2.xpt"))
+# smoke2003 <- read_xpt(here("data", "2003_2004_smoking_SMQ.xpt"))
+# smoke2003_2 <- read_xpt(here("data", "2003_2004_smoking_SMQ2.xpt"))
 
 # dim(lab1999)
 # dim(demo1999)
@@ -160,18 +160,18 @@ The sourced data sets are re-tidied to retain all the sample persons, so that th
 ```{r}
 # combine data
 data1999 <- demo1999 %>%
-  left_join(smoke1999, by = "SEQN") %>%
-  left_join(smoke1999_2, by = "SEQN") %>%
+  # left_join(smoke1999, by = "SEQN") %>%
+  # left_join(smoke1999_2, by = "SEQN") %>%
   left_join(lab1999, by = "SEQN") %>%
   left_join(mort1999, by = "SEQN")
 data2001 <- demo2001 %>%
-  left_join(smoke2001, by = "SEQN") %>%
-  left_join(smoke2001_2, by = "SEQN") %>%
+  # left_join(smoke2001, by = "SEQN") %>%
+  # left_join(smoke2001_2, by = "SEQN") %>%
   left_join(lab2001, by = "SEQN") %>%
   left_join(mort2001, by = "SEQN")
 data2003 <- demo2003 %>%
-  left_join(smoke2003, by = "SEQN") %>%
-  left_join(smoke2003_2, by = "SEQN") %>%
+  # left_join(smoke2003, by = "SEQN") %>%
+  # left_join(smoke2003_2, by = "SEQN") %>%
   left_join(lab2003, by = "SEQN") %>%
   left_join(lab2003_cotinine, by = "SEQN") %>%
   left_join(mort2003, by = "SEQN")
@@ -198,17 +198,18 @@ mergedata %<>%
         education = case_when(DMDEDUC == 1 ~ "Less than high school", DMDEDUC == 2 ~ "High school", DMDEDUC == 3 ~ "College or higher") %>% factor(., levels = c("Less than high school", "High school", "College or higher"), ordered = TRUE), 
         income = case_when(INDFMINC %in% c(1:4, 13) ~ "Less than $20,000", INDFMINC %in% 5:12 ~ "$20,000 or more") %>% factor(., levels = c("Less than $20,000", "$20,000 or more"), ordered = TRUE),
         # smoke = case_when(SMQ040 %in% 1:2 ~ "Current smoker", SMQ040 == 3 & SMQ050Q >= 1 & SMQ050Q < 100 ~ "Former smoker", (SMQ040 == 3 & SMQ050Q >= 100) | SMQ620 == 2 ~ "Never smoker") %>% factor(., levels = c("Never smoker", "Current smoker", "Former smoker")),
-        smoke = case_when(SMQ040 %in% 1:2 ~ "Current smoker", SMQ040 == 3 & SMQ020 == 1 ~ "Former smoker", SMQ020 == 2 ~ "Never smoker") %>% factor(., levels = c("Never smoker", "Current smoker", "Former smoker")),
+        # smoke = case_when(SMQ040 %in% 1:2 ~ "Current smoker", SMQ040 == 3 & SMQ020 == 1 ~ "Former smoker", SMQ020 == 2 ~ "Never smoker") %>% factor(., levels = c("Never smoker", "Current smoker", "Former smoker")),
         wt6yr = case_when(SDDSRVYR %in% 1:2 ~ 2/3 * WTMEC4YR, SDDSRVYR == 3 ~ 1/3 * WTMEC2YR),
         cadmium_qr = case_when(cadmium <= 0.3 ~ "Quartile1", cadmium > 0.3 & cadmium <= 0.4 ~ "Quartile2", cadmium > 0.4 & cadmium <= 0.6 ~ "Quartile3", cadmium > 0.6 ~ "Quartile4") %>% factor(., levels = c("Quartile1", "Quartile2", "Quartile3", "Quartile4")),
         # cadmium_qr = case_when(cadmium <= 0.3 ~ "Quartile 1 (≤0.3)", cadmium > 0.3 & cadmium <= 0.4 ~ "Quartile 2 (0.3–0.4)", cadmium > 0.4 & cadmium <= 0.6 ~ "Quartile 3 (0.4–0.6)", cadmium > 0.6 ~ "Quartile 4 (>0.6)") %>% factor(., levels = c("Quartile 1 (≤0.3)", "Quartile 2 (0.3–0.4)", "Quartile 3 (0.4–0.6)", "Quartile 4 (>0.6)"), ordered = TRUE),
        cotinine_qr = case_when(cotinine <= 0.022 ~ "Q1 (≤0.022)", cotinine >= 0.023 & cotinine <= 0.037 ~ "Q2 (0.023–0.037)", cotinine >= 0.038 & cotinine <= 0.297 ~ "Q3 (0.038–0.297)", cotinine >= 0.3 ~ "Q4 (≥0.30)") %>% factor(., levels = c("Q1 (≤0.022)", "Q2 (0.023–0.037)", "Q3 (0.038–0.297)", "Q4 (≥0.30)"), ordered = TRUE),
        age_gp = case_when(age <= 69 ~ "60-69", age >= 70 & age <= 79 ~ "70-79", age >= 80 & age <= 89 ~ "80-89") %>% factor(., levels = c("60-69", "70-79", "80-89"), ordered = TRUE),
-        inAnalysis = (age >= 60 & !is.na(dead) & !is.na(cadmium) & !is.na(cotinine) & !is.na(age) & !is.na(gender) & !is.na(ethnicity) & !is.na(education) & !is.na(income) & !is.na(smoke) & !is.na(wt6yr) & !is.na(SDMVPSU) & !is.na(SDMVSTRA)))
+        # inAnalysis = (age >= 60 & !is.na(dead) & !is.na(cadmium) & !is.na(cotinine) & !is.na(age) & !is.na(gender) & !is.na(ethnicity) & !is.na(education) & !is.na(income) & !is.na(smoke) & !is.na(wt6yr) & !is.na(SDMVPSU) & !is.na(SDMVSTRA))
+       inAnalysis = (age >= 60 & !is.na(dead) & !is.na(cadmium) & !is.na(cotinine) & !is.na(age) & !is.na(gender) & !is.na(ethnicity) & !is.na(education) & !is.na(income) & !is.na(wt6yr) & !is.na(SDMVPSU) & !is.na(SDMVSTRA)))
 
 # check missing values: same as the former tidying process
 tmp <- mergedata %>%
-  dplyr::select(dead, time, cadmium, cotinine, age, gender, ethnicity, education, income, smoke, wt6yr) %>%
+  dplyr::select(dead, time, cadmium, cotinine, age, gender, ethnicity, education, income, wt6yr) %>%
   filter(age >= 60)
 
 dim(tmp) 
@@ -223,12 +224,12 @@ tmp %>%
 tmp %>% 
   filter(!(is.na(dead) | is.na(cadmium))) %>%
   summary()
-# missing: cotinine 138, education 20, income 200, smoking 11
+# missing: cotinine 138, education 20, income 200
 
 tmp %>% 
   na.omit() %>%
   dim()
-# 4385 persons remained after all the missing values are excluded, greater than sample size in the paper
+# 4392 persons remained after all the missing values are excluded, greater than sample size in the paper
 ```
 
 
@@ -298,7 +299,7 @@ descrip_one <- function(svyobj, x) {
     dplyr::select(c(var, `No.`, `Unadjusted mean (SE)`, `p-value`))
 }
 
-(tab1 <- c("age_gp", "gender", "ethnicity", "education", "income", "cotinine_qr", "smoke") %>%
+(tab1 <- c("age_gp", "gender", "ethnicity", "education", "income", "cotinine_qr") %>%
   map(~descrip_one(nhanes_svy, .)) %>%
   bind_rows())
 
@@ -340,7 +341,7 @@ text(40, 0.985, paste0("p=", round(s1test[[2]][2], 4)), font = 2)
 model0 <- svycoxph(Surv(time, dead) ~ cadmium_qr, nhanes_svy)
 
 # adjusted HR
-model1 <- svycoxph(Surv(time, dead) ~ cadmium_qr + age + I(age^2) + gender + ethnicity + education + income + smoke + cotinine, nhanes_svy)
+model1 <- svycoxph(Surv(time, dead) ~ cadmium_qr + age + I(age^2) + gender + ethnicity + education + income + cotinine, nhanes_svy)
 
 # output
 coxresult <- function(model) {
