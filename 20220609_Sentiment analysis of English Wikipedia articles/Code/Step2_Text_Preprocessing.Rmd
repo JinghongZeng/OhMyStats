@@ -1,0 +1,131 @@
+---
+title: "Step 2: text preprocessing"
+author: "Jinghong Zeng"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = TRUE,
+	warning = FALSE,
+	pacman::p_load(sparklyr, sparknlp, tidyverse, magrittr, mice, tableone, naniar, lubridate)
+)
+```
+
+
+## Manual cleaning
+
+I first use the `gsub` function to clean hidden information, file uploads, references, URL and other non-useful structures out of text. My cleaning function may lead to some mistakes, for example some non-useful characters that I do not know about may not be cleaned out, but all the sentimental words should have been retained. 
+
+```{r}
+# Load the original and imputed data sets
+load("wikidata-tmp.RData")
+
+# Write a function to clean the text
+clean_text <- function(df) {
+  df %>% mutate(rawtext = text, 
+                 text = rawtext %>%
+                  gsub("from [{][{][^}]*[}][}]", " ", .) %>%
+                   gsub("[{][{][^}]*[}][}]", " ", .) %>%
+                   gsub("<[^>]*>", " ", .) %>%
+                   # the above two lines can remove the structure `<ref>{{...}}</ref>`
+                   # then remove the inserted `file` structure: `File...\n`
+                   gsub("File.+?\n", " ", .) %>%
+                   # then the following procedures would be like text[1]
+                   gsub("[", "<", ., fixed = TRUE) %>%
+                   gsub("]", ">", ., fixed = TRUE) %>%
+                   gsub("<http[^>]*>", "", .) %>%
+                   gsub("<<[^|]*[|]", " ", .) %>%
+                   gsub("\n", " ", .) %>%
+                   gsub("\t", " ", .) %>%
+                   gsub("&ndash", " ", .)) 
+                 # gsub("[[:punct:]]", " ", .)
+}
+
+
+# The table of content is a structure in wikipage, but itself is not returned as text, because the associated titles are returned.
+# Punctuations are not cleaned here. Cleaning punctuations here would separate words into nonsense, such as `e.g.` -> `e g` or `des-cribe` -> `des cribe`.
+# Some special characters used in Wikipedia article content may not be cleaned out, as I do not know all the special characters. So my cleaning function may lead to some clean mistakes. But it should have all the sentiment words left.
+# Some hidden notes has a structure `{{}}`, while some language reference has a structure `{{lang-...}}`. The language reference is cleaned out. These languages are usually not English, so basically these words will not be needed, and thus we don't need to keep them.
+# Some extra headings and endings are retained, such as portal at the end as they are actually shown on the page.
+
+
+# Clean the text
+# the original data and the imputed data have the same text variable, so we can clean either data set
+wikidata.tmp <- clean_text(wikidata.tmp)
+```
+
+
+## Spark NLP cleaning
+
+Then I use Spark NLP annotators to further clean the text. The process is to first split the text into tokens (words), normalize the tokens (remove dirty characters) and lemmatize the tokens (find the root words) based on a Spark lemma dictionary.
+
+```{r}
+# Preprocess text by Spark NLP
+
+# Set up JAVA!
+# Sys.getenv("JAVA_HOME")
+Sys.setenv(JAVA_HOME = "/Library/Java/JavaVirtualMachines/jdk-11.jdk/Contents/Home")
+# system2("java", "--version")
+
+
+# Set up Spark connection
+sc <- spark_connect(master = "local", version = "3.0.0")
+
+
+# Send text to Spark
+wikitext <- sdf_copy_to(sc, wikidata.tmp %>% dplyr::select(text))
+
+
+# Define document annotator
+docAnno <- nlp_document_assembler(sc, input_col = "text", output_col = "document", cleanup_mode = "shrink")
+
+
+# Define tokenizer
+tokenAnno <- nlp_tokenizer(sc, input_cols = "document", output_col = "token")
+
+
+# Define normalizer
+normalAnno <- nlp_normalizer(sc, input_cols = c("token"), output_col = "normalized", lowercase = TRUE, cleanup_patterns = c("[^\\w\\d\\s]"))
+# only words, alphanumeric characters, space will be left, non-english words are cleaned out.
+
+
+# Define lemmatizer
+# use dictionary for lemmatization downloaded from Spark
+lemmaAnno <- nlp_lemmatizer(sc, input_cols = c("normalized"), output_col = "lemmatized", dictionary_path = here::here("lemma_dict.txt"), dictionary_value_delimiter = "\t", dictionary_key_delimiter = "->")
+
+
+# Define finisher to combine all the results from previous annotators
+finishAnno <- nlp_finisher(sc, input_cols = c("lemmatized"), output_cols = "finished", include_metadata = FALSE, output_as_array = TRUE)
+
+
+# Build a Spark ML pipeline to combine all the annotators defined above
+wikipipe.preprocess <- ml_pipeline(docAnno, tokenAnno, normalAnno, lemmaAnno, finishAnno)
+
+
+# Process the text using the pipeline
+wikipipe.preprocess.result <- wikitext %>% 
+  ml_fit(wikipipe.preprocess, .) %>%
+  ml_transform(., wikitext)
+
+
+# Extract the result
+wikitext.out <- as.data.frame(wikipipe.preprocess.result) 
+str(wikitext.out$finished)
+# each value of the cleaned text column is a list of lists, each sub-list is a normalized and lemmatized token, that is, a single word.
+all(stringi::stri_enc_isascii(unlist(wikitext.out$finished[2])))
+# non-English words are cleaned out
+
+
+# Close Spark connection
+spark_disconnect(sc)
+
+
+# Combine the original data with cleaned text and save the text-cleaned data
+wikidata.tmp %<>% mutate(text = wikitext.out$finished)
+
+save(wikidata.tmp, file = "wikidata-tmp-cleaned.RData")
+# load("wikidata-tmp-cleaned.RData")
+```

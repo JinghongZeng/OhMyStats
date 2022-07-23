@@ -1,0 +1,292 @@
+---
+title: "Step 1: data"
+author: "Jinghong Zeng"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = TRUE,
+	warning = TRUE,
+	error = TRUE
+)
+pacman::p_load(httr, jsonlite, WikipediR, xml2, tidyverse, magrittr, lubridate, mice, xtable, naniar)
+```
+
+
+## Data acquisition
+
+9 main categories are selected from the main categories of English Wikipedia, except of two main categories, Human Activities and General Reference. Across the 9 categories, 22 topics are selected, with a comparable number of articles, to achieve a more representative sample of all the English Wikipedia articles and help us identify a broader scope of topics, though this sampling method cannot guarantee all the articles have the same amount of text. In total 1740 articles are extracted.
+
+The first data queries are made via the English Wikipedia API on Mar 23, 2022, EST. The second data queries are made via the English Wikipedia API on Mar 26, 2022, EST, only for the first revision release date. 
+
+In RStudio Cloud, `GET` requests from the httr package will be made to access data in JSON format from the API. Information that I want to know about the articles are nominated as the API parameters in the URL, with reference to [MediaWiki API documentation] (https://www.mediawiki.org/w/api.php?action=help&modules=query).
+
+Returned attributes are page ID, page title, the number of pageviews in the last 60 days from the day when the data is accessed, the list of logged-in contributors and the count of anonymous contributors to a page, the number of watchers if allowed, the number of watchers of each page who have visited recent edits to that page if allowed, the number of daily pageviews of the last 60 days, all redirects to each page, last revision ID, time stamps of the first and last revisions, length (bytes) of the last revision, text content of the last revision. The last revision is used as the current version. The total number of contributors including known and anonymous may not be accurate due to a maximum limit. Redirect information is returned, but redirects have been automatically dropped out by the query code.
+
+```{r}
+# Access the data via API
+
+# Culture
+topic1 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Literature&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+topic2 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Language&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+
+# Health
+topic3 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Hospitals&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+topic4 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Safety&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+topic5 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Diseases%20and%20disorders&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+
+# History
+topic6 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Historiography&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+
+# Mathematics
+topic7 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Measurement&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+topic8 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Mathematical%20proofs&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+topic9 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Theorems&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+
+# Philosophy
+topic10 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Ethics&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+
+# Religion
+topic11 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Buddhas&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+topic12 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Spiritualism&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+topic13 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:God&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+
+# Society
+topic14 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Politics&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+
+# People
+topic15 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Motivation&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+topic16 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Love&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+topic17 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Hobbies&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+topic18 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Entertainment&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+topic19 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Sexuality&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2") 
+
+# Technology
+topic20 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Robotics&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+topic21 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Manufacturing&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+topic22 <- GET("http://en.wikipedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:Software&gcmlimit=500&gcmprop=ids|title|timestamp&gcmtype=page&prop=info|contributors|pageviews|redirects|revisions&inprop=watchers|visitingwatchers&pclimit=500&rdlimit=500&rvprop=ids|timestamp|size|slotsize|content&rvslots=*&redirects&format=json&formatversion=2")
+```
+
+After acquiring the data via API, the returned data format is JSON. The content of the JSON data has a nested structure. Then the JSON data is converted to `list` objects in `R` by using the `fromJSON` function provided by the `jsonlite` package. Each `list` object from the JSON data is a nested list that contains two lists with data frames and other objects in them. Ideally there should be a third list named `batchcomplete` to indicate if the data from the current brunch have been returned completely. This list is missing possibly because some data are missing.
+
+```{r}
+# Convert JSON data
+datalist1 <- fromJSON(content(topic1, as = "text"))
+datalist2 <- fromJSON(content(topic2, as = "text"))
+datalist3 <- fromJSON(content(topic3, as = "text"))
+datalist4 <- fromJSON(content(topic4, as = "text"))
+datalist5 <- fromJSON(content(topic5, as = "text"))
+datalist6 <- fromJSON(content(topic6, as = "text"))
+datalist7 <- fromJSON(content(topic7, as = "text"))
+datalist8 <- fromJSON(content(topic8, as = "text"))
+datalist9 <- fromJSON(content(topic9, as = "text"))
+datalist10 <- fromJSON(content(topic10, as = "text"))
+datalist11 <- fromJSON(content(topic11, as = "text"))
+datalist12 <- fromJSON(content(topic12, as = "text"))
+datalist13 <- fromJSON(content(topic13, as = "text"))
+datalist14 <- fromJSON(content(topic14, as = "text"))
+datalist15 <- fromJSON(content(topic15, as = "text"))
+datalist16 <- fromJSON(content(topic16, as = "text"))
+datalist17 <- fromJSON(content(topic17, as = "text"))
+datalist18 <- fromJSON(content(topic18, as = "text"))
+datalist19 <- fromJSON(content(topic19, as = "text"))
+datalist20 <- fromJSON(content(topic20, as = "text"))
+datalist21 <- fromJSON(content(topic21, as = "text"))
+datalist22 <- fromJSON(content(topic22, as = "text"))
+
+
+# Save the converted data
+# save(datalist1, datalist2, datalist3, datalist4, datalist5, datalist6, datalist7, datalist8, datalist9, datalist10, datalist11, datalist12, datalist13, datalist14, datalist15, datalist16, datalist17, datalist18, datalist19, datalist20, datalist21, datalist22, file = "datalists.RData")
+```
+
+
+## Data cleaning
+
+Then I extract variables from a sublist into a list for each topic and create the number of logged-in contributors, redirects and pageviews from original information, then bind all the data sets. Next the release date of the first revision is sourced independently and added to the data. Possibly useful variables are then selected. The title and content of the articles are text. Title and content text are pasted together. 
+
+```{r}
+# Clean the data
+wikiarticles <- list(datalist1, datalist2, datalist3, datalist4, datalist5, datalist6, datalist7, datalist8, datalist9, datalist10, datalist11, datalist12, datalist13, datalist14, datalist15, datalist16, datalist17, datalist18, datalist19, datalist20, datalist21, datalist22) %>% 
+  map(function(dat) {
+  pages <- dat$query$pages
+  if("new" %in% colnames(pages)) pages %<>% dplyr::select(-new)
+  
+  # calculate the number of logged-in contributors
+  numcontributor <- pages %>%
+    split(.$pageid) %>%
+    map_dbl(~ifelse(!is.null(dim(.$contributors[[1]])[1]),
+                    dim(.$contributors[[1]])[1], NA))
+  
+  # calculate the number of redirects
+  numredirect <- pages %>% 
+    split(.$pageid) %>%
+    map_dbl(~ifelse(!is.null(dim(.$redirects[[1]])[1]),
+                    dim(.$redirects[[1]])[1], NA))
+
+  # organize the information for the last revision
+  revisions <- pages %>%
+    split(.$pageid) %>%
+    map(~.$revisions[[1]]) 
+  revisions %<>%
+    bind_rows(.id = "pageid") %>%
+    complete(pageid = names(revisions)) %>%
+    mutate(pageid = as.integer(pageid)) %>%
+    split(.$pageid) %>%
+    map(~dplyr::select(., -size) %>% 
+          cbind(., .$slots$main) %>% 
+          dplyr::select(-slots)) %>%
+    bind_rows()
+
+  # calculate the number of pageviews
+  pageview <- cbind(pageid = pages$pageid, pages$pageviews) %>% 
+    split(.$pageid) %>%
+    map_dbl(~ifelse(!all(is.na(.[, colnames(.) != "pageid"])), rowSums(.[, colnames(.) != "pageid"], na.rm = TRUE), NA))
+
+  # create new attributes and clean the data set
+  pages %>% 
+    dplyr::select(-contentmodel, -contributors, -redirects, -revisions, -pageviews) %>% 
+    mutate(numcontributor = numcontributor, numredirect = numredirect, pageview = pageview) %>% 
+    left_join(revisions, by = "pageid")
+})
+
+
+# Find how many attributes are in each topic
+wikiarticles %>% map_dbl(~dim(.)[2])
+
+
+# Find how many articles are in each topic
+numarticles <- wikiarticles %>% map_dbl(~dim(.)[1])
+sum(numarticles)
+
+
+# A summary of articles, topics and categories
+topic <- c("Literature", "Language", "Hospitals", "Safety", "Diseases", "Historiography", "Measurement", "Proofs", "Theorems", "Ethics", "Buddhas", "Spiritualism", "God", "Politics", "Motivation", "Love", "Hobbies", "Entertainment", "Sexuality", "Robotics", "Manufacturing", "Software")
+category <- c(rep("Culture", 2), rep("Health", 3), "History", rep("Mathematics", 3), "Philosophy", rep("Religion", 3), "Society", rep("People", 5), rep("Technology", 3))
+
+datasourcesummary <- data.frame(Topic = topic, Category = category, `Number of articles` = numarticles)
+datasourcesummary
+
+
+# Create the clean data set
+wikiarticles.clean <- wikiarticles %>% 
+  bind_rows() %>%
+  mutate(topic = rep(topic, numarticles), category = rep(category, numarticles))
+
+
+# Extract the release date of the first revision
+firsttimestamp <- wikiarticles.clean$pageid %>%
+  map(~GET("http://en.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=timestamp&rvdir=newer&rvlimit=1&format=json&formatversion=2", query = list(pageids = .))) %>%
+  map(~fromJSON(content(., as = "text"))) %>%
+  map_chr(~.$query$pages$revisions[[1]]$timestamp)
+
+
+# Combine the data from the first access with the first revision release date
+# convert the dates into the date class
+wikiarticles.clean.all <- wikiarticles.clean %>% 
+  mutate(lastrevtime = timestamp %>% ymd_hms(tz = "UTC")) %>%
+  dplyr::select(-timestamp) %>%
+  mutate(firstrevtime = firsttimestamp %>% ymd_hms(tz = "UTC")) 
+
+
+# Look at some summaries about this data
+dim(wikiarticles.clean.all)
+colnames(wikiarticles.clean.all)
+summary(wikiarticles.clean.all)
+
+
+# Only save variables that may be useful in the analysis
+wikidata <- wikiarticles.clean.all %>%
+  dplyr::select(-ns, -contains("pagelanguage"), -touched, -contains("revid"), -parentid, -contentmodel, -contentformat, -size) %>%
+  mutate(text = paste(title, content)) %>%
+  dplyr::select(-title, -content)
+
+
+# Save the Wiki data and load it when necessary
+# save(wikidata, file = "wikidata.RData")
+# load("wikidata.RData")
+```
+
+
+## Imputation
+
+The data contains missing values in the number of contributors, watchers and redirects. It is implausible to impute missing values by 0 because the `batchcomplete` list has not been returned and the total number of contributors can be 0 for some pages if I impute missing values by 0. Instead, missing values are imputed by the `mice` function from the `mice` package. Multiple imputation is carried out, but only the last imputed data set is used. To avoid information leakage, this imputation is only used for data exploration. In further modelling, the imputation will be separately carried out for training and test sets, if applicable.
+
+```{r}
+# Load the data if necessary
+# load("wikidata.RData")
+
+
+# See missing values
+missvars <- miss_var_summary(wikidata %>%
+                               mutate(lastrevtime = as.numeric(lastrevtime), firstrevtime = as.numeric(firstrevtime)) %>% 
+                               dplyr::select(length, watchers, anoncontributors, visitingwatchers, numcontributor, numredirect, pageview, topic, category, lastrevtime, firstrevtime))
+missvars
+View(missvars)
+
+# Do multiple imputation
+# use random forest imputation
+wikidata.imp <- mice(wikidata %>% mutate(lastrevtime = as.numeric(lastrevtime), firstrevtime = as.numeric(firstrevtime)) %>% dplyr::select(length, watchers, anoncontributors, visitingwatchers, numcontributor, numredirect, pageview, lastrevtime, firstrevtime), m = 5, method = "rf", seed = 276425917, visitSequence = rev(missvars$variable))
+
+
+# Do imputation diagnostics
+wikidata.imp$loggedEvents # no logged events
+
+mice::stripplot(wikidata.imp, numcontributor + pageview + visitingwatchers + watchers + lastrevtime + numredirect + anoncontributors ~ .imp)
+
+plot(wikidata.imp, numcontributor + pageview + visitingwatchers + watchers + lastrevtime + numredirect + anoncontributors ~ .it | .ms)
+
+# Multiple imputations are first carried out to see if the variables can be imputed well. Overall the imputations are good, though the imputations for the number of watchers is not variable. Then the last imputation is used as the single imputation for the Wikipedia data.
+# The topic, category and text are not used in the imputations, so we should expect the imputed values will not be much related to these text information.
+
+
+# Create the imputed data set
+wikidata.imp.result <- mice::complete(wikidata.imp, action = "all")[[5]]
+
+wikidata.tmp <- wikidata
+wikidata.tmp[, colnames(wikidata.imp.result)] <- wikidata.imp.result
+
+wikidata.tmp %<>% mutate(lastrevtime = as_datetime(lastrevtime), firstrevtime = as_datetime(firstrevtime))
+
+
+
+```
+
+As a new attribute, the years from the first revision to the last revision are calculated for each article.
+
+```{r}
+# Calculate the years when each article is on Wikipedia
+time = as.period(interval(as_date(wikidata.tmp$firstrevtime), as_date(wikidata.tmp$lastrevtime)), unit = "year")
+
+time %<>%
+  map_dbl(function(x) {
+    seg <- x %>%
+      as.character() %>%
+      strsplit(., " ") %>% .[[1]] %>% .[1:3]
+    
+    duration <- 0
+    if (grepl("y", seg[1])) {
+      duration <- sub("y", "", seg[1]) %>% as.numeric()
+    } else if (grepl("m", seg[1])) {
+      duration <- sub("m", "", seg[1]) %>% as.numeric()/12
+    } 
+    
+    if (duration < 0) {
+      duration <- 0
+    }
+    # some last revision dates are older than first revision dates, this may be because of the imputation, so the negative durations are all treated as 0.
+    duration
+  })
+
+# Create a new attribute
+wikidata.tmp %<>% mutate(Years = time)
+summary(wikidata.tmp$Years)
+
+
+# Save the imputed data set
+# save(wikidata.tmp, file = "wikidata-tmp.RData")
+```
+
+

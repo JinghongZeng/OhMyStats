@@ -1,0 +1,413 @@
+---
+title: "Step 3: modelling"
+author: "Jinghong Zeng"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The code for modelling is shown below. The results are in the report.
+
+```{r}
+### Analyze the sentiment of the articles
+
+# Clean the NRC lexicon
+nrc <- read.table("NRC-Emotion-Lexicon-Wordlevel-v0.92.txt", col.names = c("word", "category", "index"))
+words <- nrc %>% 
+  filter(category == "negative" | category == "positive") %>%
+  filter(index == 1)
+nrow(words) == length(unique(words$word)) %>% 
+  filter(!duplicated(word))
+
+# Lemmatize the words and add some root words
+nrclexicon <- sdf_copy_to(sc, words %>% dplyr::select(word))
+
+docAnno <- nlp_document_assembler(sc, input_col = "word", output_col = "document")
+
+tokenAnno <- nlp_tokenizer(sc, input_cols = "document", output_col = "token")
+
+lemmaAnno <- nlp_lemmatizer(sc, input_cols = c("token"), output_col = "lemmatized", dictionary_path = here::here("lemma_dict.txt"), dictionary_value_delimiter = "\t", dictionary_key_delimiter = "->")
+
+finishAnno <- nlp_finisher(sc, input_cols = c("lemmatized"), output_cols = "finished", include_metadata = FALSE, output_as_array = TRUE)
+
+pipe.lexicon <- ml_pipeline(docAnno, tokenAnno, lemmaAnno, finishAnno)
+
+pipe.lexicon.result <- nrclexicon %>% 
+  ml_fit(pipe.lexicon, .) %>%
+  ml_transform(., nrclexicon)
+
+lexicon.out <- collect(pipe.lexicon.result)
+lexicon.out %<>% 
+  mutate(root = unlist(finished), category = words$category) %>%
+  dplyr::select(root, category) %>%
+  filter(!duplicated(root))
+
+words %<>%
+  dplyr::select(-index) %>%
+  dplyr::full_join(lexicon.out, by = c("word" = "root", "category"))
+
+# Add my list of words
+mywords <- data.frame(
+  word = c("nice", "awesome", "expensive", "sad", "not", "too", "very", "barely", "little",  "hardly", "seldom", "more", "most", "less", "least", "better", "best", "worst", "never", "no"),
+  category = c("positive", "positive", "negative", "negative", "revert", "increment", "increment", "decrement", "decrement", "decrement", "decrement", "increment", "increment", "decrement", "decrement", "increment", "increment", "decrement", "revert", "revert")
+)
+
+words %<>%
+  bind_rows(mywords)
+
+# Save the lexicon
+write.table(words, file = "sentiment_lexicon.txt", sep = ",", quote = FALSE, row.names = FALSE, col.names = FALSE)
+
+# Redefine document annotator
+docAnno <- nlp_document_assembler(sc, input_col = "text", output_col = "document", cleanup_mode = "shrink")
+
+# Define normalizer
+normalAnno <- nlp_normalizer(sc, input_cols = c("token"), output_col = "normalized", lowercase = TRUE, cleanup_patterns = c("[^\\w\\d\\s]"))
+
+# Define the sentiment detector
+sentimentAnno <- nlp_sentiment_detector(sc, input_cols = c( "document", "normalized"), output_col = "sentiment", dictionary_path = here::here("sentiment_lexicon.txt"), enable_score = TRUE)
+
+# Define finisher to combine all the results from previous annotators
+finishAnno <- nlp_finisher(sc, input_cols = c("sentiment"), output_cols = "finished", include_metadata = FALSE, output_as_array = TRUE)
+
+# Build a Spark ML pipeline to combine all the annotators defined above
+wikipipe.preprocess <- ml_pipeline(docAnno, tokenAnno, normalAnno, lemmaAnno, sentimentAnno, finishAnno)
+
+# Calculate the sentiment score
+wikipipe.preprocess.result <- wikitext %>% 
+  ml_fit(wikipipe.preprocess, .) %>%
+  ml_transform(., wikitext)
+
+wikitext.out <- collect(wikipipe.preprocess.result)
+
+sentimentresults <- wikitext.out %>%
+  mutate(score = finished %>% 
+           unlist %>% 
+           as.numeric(), 
+         sentiment = case_when(score > 0 ~ "positive", 
+                               score == 0 ~ "neutral", 
+                               score < 0 ~ "negative"))
+
+# Show sentiment analysis results
+table(sentimentresults$sentiment)
+
+# Combine the data with the sentiment results
+load("wikidata-tmp-cleaned.RData")
+
+wikidata.tmp %<>% 
+  bind_cols(sentimentresults %>% 
+              dplyr::select(score, sentiment))
+
+# save(wikidata.tmp, file = "wikidata-tmp-sentiment.RData")
+
+
+### Analyze the association between the sentiment and the topic
+
+# Load the data
+# load("wikidata-tmp-sentiment.RData")
+
+# Set the negative sentiment as reference level
+wikidata.tmp %<>% mutate(sentiment = case_when(sentiment == "negative" ~ 0,
+                                               sentiment == "neutral" ~ 1, 
+                                               sentiment == "positive" ~ 2)) 
+
+# Set up Spark
+# Similar code is used before. I do the analysis in a new session, so need to set up Spark again.
+Sys.setenv(JAVA_HOME = "/Library/Java/JavaVirtualMachines/jdk-11.jdk/Contents/Home")
+
+sc <- spark_connect(master = "local", version = "3.0.0")
+
+# Send data to Spark
+wikitopic <- sdf_copy_to(sc, wikidata.tmp, overwrite = TRUE)
+
+# Build a multinomial logistic model and check the coefficient estimates
+model1 <- ml_logistic_regression(wikitopic, sentiment ~ topic, family = "multinomial")
+
+model1coef <- model1$coefficients  %>% as.data.frame()
+
+# Make predictions for all the topics
+preddata <- data.frame(topic = unique(wikidata.tmp$topic))
+
+preddataspark <- sdf_copy_to(sc, preddata, overwrite = TRUE)
+
+pred1 <- ml_predict(model1, preddataspark)
+pred1out <- collect(pred1)
+
+pred1out$prediction
+
+pred1out %<>%
+         arrange(probability_2) %>%
+         mutate(topicx = row_number())
+
+ggplot(pred1out) +
+  geom_line(aes(x = topicx, y = probability_0, col = "negative")) + 
+  geom_line(aes(x = topicx, y = probability_1, col = "neutral")) + 
+  geom_line(aes(x = topicx, y = probability_2, col = "positive")) +
+  guides(color = guide_legend(title = "Sentiment")) +
+  labs(x = "Topic", y = "Probability", 
+       title = "Probabilities of 3 sentiment classes for each topic") +
+  scale_x_continuous(breaks = 1:22, labels = pred1out$topic) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Assess the accuracy of the multinomial logisitic model
+predraw <- ml_predict(model1, wikitopic)
+
+ml_multiclass_classification_evaluator(predraw, metric_name = "accuracy")
+
+
+# Build a decision tree and check feature importance
+model2 <- ml_decision_tree(wikitopic, sentiment ~ topic, seed = 1, type = "classification", max_depth = 22)
+
+ml_feature_importances(model2)
+
+# See the tree structure
+# need to save the model and read in the model data
+ml_save(model1, path = here::here("decisiontree.topic"))
+
+treespecraw <- spark_read_parquet(sc, here::here("decisiontree.topic/stages/1_decision_tree_ _227cecbd_6882_4fd8_b9de_c86a1abf76ae/data"))
+
+treespec <- collect(treespecraw) 
+splitvalues <- treespec$split %>% sapply(., function(x) {
+  id <- sapply(x, is_empty)
+  x <- ifelse(id, -99, x)
+}) %>% 
+  unlist()
+
+treespec %<>% 
+  mutate(featureIndex = splitvalues[seq(1, 3 * nrow(treespec), 3)], 
+         leftCategoriesOrThreshold = splitvalues[seq(2, 3 * nrow(treespec), 3)], 
+         numCategories = splitvalues[seq(3, 3 * nrow(treespec), 3)]) %>%
+  dplyr::select(-split, -impurityStats)
+
+featurenames <- data.frame(featureIndex = 0:20, name = model1$feature_names)
+
+treestructure <- treespec %>%
+  left_join(featurenames, by = "featureIndex")
+
+# Make predictions for all the topics
+pred2 <- ml_predict(model2, preddataspark)
+pred2out <- collect(pred2)
+
+pred2out$prediction
+
+# set the x axis labels same as in the graph for the multinomial logistic model
+pred2out %<>% as.data.frame()
+rownames(pred2out) <- pred2out$topic
+pred2out <- pred2out[pred1out$topic, ]
+pred2out %<>%
+  mutate(topicx = row_number())
+
+ggplot(pred2out) +
+  geom_line(aes(x = topicx, y = probability_0, col = "negative")) + 
+  geom_line(aes(x = topicx, y = probability_1, col = "neutral")) + 
+  geom_line(aes(x = topicx, y = probability_2, col = "positive")) +
+  guides(color = guide_legend(title = "Sentiment")) +
+  labs(x = "Topic", y = "Probability", 
+       title = "Probabilities of 3 sentiment classes for each topic") +
+  scale_x_continuous(breaks = 1:22, labels = pred2out$topic) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Assess the accuracy of the decision tree
+predraw <- ml_predict(model2, wikitopic)
+
+ml_multiclass_classification_evaluator(predraw, metric_name = "accuracy")
+
+
+### Analyze the association between the sentiment and the article popularity
+
+# Build multinomial logistic models and check the contributions of attributes that have many 
+# missing values
+model1 <- ml_logistic_regression(wikitopic, sentiment ~ watchers + anoncontributors + visitingwatchers + numcontributor + numredirect + pageview + Years + length, family = "multinomial")
+
+model2 <- ml_logistic_regression(wikitopic, sentiment ~ anoncontributors + numredirect + Years + watchers, family = "multinomial")
+
+model3 <- ml_logistic_regression(wikitopic, sentiment ~ anoncontributors + numredirect + Years, family = "multinomial")
+
+# Assess the accuracy of the multinomial logisitic model
+predraw1 <- ml_predict(model1, wikitopic)
+predraw2 <- ml_predict(model2, wikitopic)
+predraw3 <- ml_predict(model3, wikitopic)
+
+# accuracy
+ml_multiclass_classification_evaluator(predraw1, metric_name = "accuracy")
+ml_multiclass_classification_evaluator(predraw2, metric_name = "accuracy")
+ml_multiclass_classification_evaluator(predraw3, metric_name = "accuracy")
+# F1-score
+ml_multiclass_classification_evaluator(predraw1)
+ml_multiclass_classification_evaluator(predraw2)
+ml_multiclass_classification_evaluator(predraw3)
+
+# Find out average difference in sentiment probabilities per one-unit increase in each attribute
+# from the full model
+preddata1 <- data.frame(watchers = c(0, 1, rep(0, 6)), anoncontributors = c(0, 0, 1, rep(0, 5)), visitingwatchers = c(0, 0, 0, 1, rep(0, 4)), numcontributor = c(0, rep(0, 3), 1, rep(0, 3)), numredirect = c(0, rep(0, 4), 1, rep(0, 2)), pageview = c(0, rep(0, 5), 1, 0), Years = c(0, rep(0, 6), 1))
+
+preddataspark1 <- sdf_copy_to(sc, preddata1, overwrite = TRUE)
+
+pred1 <- ml_predict(model1, preddataspark1)
+pred1outnew <- collect(pred1)
+
+pred1.prob <- pred1outnew %>%
+  dplyr::select(starts_with("probability_"))
+pred1.base <- data.frame(probability_0 = rep(pred1.prob$probability_0[1], nrow(pred1.prob) - 1), probability_1 = rep(pred1.prob$probability_1[1], nrow(pred1.prob) - 1), probability_2 = rep(pred1.prob$probability_2[1], nrow(pred1.prob) - 1))
+
+pred1.contribute <- pred1.prob[-1, ] - pred1.base
+pred1.contribute %<>%
+  mutate(attribute = colnames(preddata) , prob_0 = round(probability_0, 5), prob_1 = round(probability_1, 5), prob_2 = round(probability_2, 5)) %>%
+  dplyr::select(attribute, starts_with("prob_")) 
+
+# Build multinomial logistic models with interaction terms
+model4data <- wikitopic %>%
+  ft_r_formula(sentiment ~ anoncontributors + watchers + numredirect + anoncontributors:numredirect + watchers:numredirect + Years)
+model5data <- wikitopic %>%
+  ft_r_formula(sentiment ~ anoncontributors + numredirect + Years + watchers + anoncontributors:Years + watchers:Years + numredirect:Years)
+
+# interaction with the number of redirects
+model4 <- model4data %>%
+  ml_logistic_regression(family = "multinomial")
+# interaction with the years
+model5 <- model4data %>%
+  ml_logistic_regression(family = "multinomial")
+
+pred4 <- ml_predict(model4, model4data)
+pred5 <- ml_predict(model5, model5data)
+ml_multiclass_classification_evaluator(pred4, metric_name = "accuracy")
+ml_multiclass_classification_evaluator(pred5, metric_name = "accuracy")
+ml_multiclass_classification_evaluator(pred4)
+ml_multiclass_classification_evaluator(pred5)
+
+# Return the coefficients from model4
+coef4 <- model4$coefficient_matrix %>%
+  round(., 6)
+dimnames(coef4) <- list(c("Negative", "Neutral", "Positive"), c("Contributors", "Watchers", "Redirects", "Contributors:Redirects", "Watchers:Redirects", "Years"))  
+coef4 %<>% as.data.frame() 
+
+# Plot graphs to see the total association under the interaction terms
+# consider interaction between contributors and redirects
+pred4data1 <- data.frame(anoncontributors = rep(100*seq(1, 30, 1), each = 10), watchers = 1000, numredirect = rep(10*(1:10), 30), Years = 5, sentiment = 0) 
+# sentiment is useless in prediction, just to facilitate copying to Spark
+
+pred4datacontri <- sdf_copy_to(sc, pred4data1, overwrite = TRUE)
+model4pred1 <- pred4datacontri %>%
+  ft_r_formula(sentiment ~ anoncontributors + watchers + numredirect + anoncontributors:numredirect + watchers:numredirect + Years)
+
+pred4contri <- ml_predict(model4, model4pred1)
+pred4outcontri <- collect(pred4contri)
+
+pred4outcontrinew <- pred4outcontri$probability %>%
+  unlist() %>%
+  matrix(., byrow = TRUE, ncol = 3, dimnames = list(NULL, paste0("prob_", 0:2))) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = everything(), names_to = "sentimentlabel", names_prefix = "prob_", values_to = "prob", names_transform = list(sentimentlabel = as.integer)) %>%
+  mutate(sentimentlabel = case_when(sentimentlabel == 0 ~ "Negative", 
+                                    sentimentlabel == 1 ~ "Neutral", 
+                                    sentimentlabel == 2 ~ "Positive")) %>%
+  cbind(pred4outcontri, .)
+
+ggplot(pred4outcontrinew, aes(x = anoncontributors, y = prob, col = as.factor(sentimentlabel))) +
+  geom_jitter(alpha = 0.5) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = FALSE) +
+  guides(color = guide_legend(title = "Sentiment")) +
+  scale_x_continuous(breaks = 100*seq(1, 30, 1)) +
+  labs(x = "Number of anonymous contributors", y = "Probability", 
+       title = "Association between sentiment probability and anonymous contributors") +
+  theme(axis.text.x = element_text(angle = 270))
+
+ggplot(pred4outcontrinew, aes(x = numredirect, y = prob, col = as.factor(sentimentlabel))) +
+  geom_jitter(alpha = 0.5) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = FALSE) +
+  guides(color = guide_legend(title = "Sentiment")) +
+  scale_x_continuous(breaks = 10*(1:10)) +
+  labs(x = "Number of redirects", y = "Probability", 
+       title = "Association between sentiment probability and redirects") +
+  theme(axis.text.x = element_text(angle = 270))
+
+# consider interaction between watchers and redirects
+pred4data2 <- data.frame(watchers = rep(100*seq(1, 20, 1), each = 10), anoncontributors = 1000, numredirect = rep(10*(1:10), 20), Years = 5, sentiment = 0) 
+
+pred4datawatch <- sdf_copy_to(sc, pred4data2, overwrite = TRUE)
+model4pred2 <- pred4datawatch %>%
+  ft_r_formula(sentiment ~ anoncontributors + watchers + numredirect + anoncontributors:numredirect + watchers:numredirect + Years)
+
+pred4watch <- ml_predict(model4, model4pred2)
+pred4outwatch <- collect(pred4watch)
+
+pred4outwatchnew <- pred4outwatch$probability %>%
+  unlist() %>%
+  matrix(., byrow = TRUE, ncol = 3, dimnames = list(NULL, paste0("prob_", 0:2))) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = everything(), names_to = "sentimentlabel", names_prefix = "prob_", values_to = "prob", names_transform = list(sentimentlabel = as.integer)) %>%
+  mutate(sentimentlabel = case_when(sentimentlabel == 0 ~ "Negative", 
+                                    sentimentlabel == 1 ~ "Neutral", 
+                                    sentimentlabel == 2 ~ "Positive")) %>%
+  cbind(pred4outwatch, .)
+
+ggplot(pred4outwatchnew, aes(x = watchers, y = prob, col = as.factor(sentimentlabel))) +
+  geom_jitter(alpha = 0.5) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = FALSE) +
+  guides(color = guide_legend(title = "Sentiment")) +
+  scale_x_continuous(breaks = 100*seq(1, 20, 1)) +
+  labs(x = "Number of watchers", y = "Probability", 
+       title = "Association between sentiment probability and watchers") +
+  theme(axis.text.x = element_text(angle = 270))
+
+ggplot(pred4outwatchnew, aes(x = numredirect, y = prob, col = as.factor(sentimentlabel))) +
+  geom_jitter(alpha = 0.5) +
+  geom_smooth(method = 'loess', formula = y ~ x, se = FALSE) +
+  guides(color = guide_legend(title = "Sentiment")) +
+  scale_x_continuous(breaks = 10*(1:10)) +
+  labs(x = "Number of redirects", y = "Probability", title = "Association between sentiment probability and redirects") +
+  theme(axis.text.x = element_text(angle = 270))
+
+# Build decision trees and check feature importance
+# depth 2
+model5 <- ml_decision_tree(wikitopic, sentiment ~ watchers + anoncontributors + numredirect + Years, seed = 1, type = "classification", max_bins = 50, min_instances_per_node = 3, max_depth = 2)
+# depth 3
+model6 <- ml_decision_tree(wikitopic, sentiment ~ watchers + anoncontributors + numredirect + Years, seed = 1, type = "classification", max_bins = 50, min_instances_per_node = 3, max_depth = 3)
+
+ml_feature_importances(model5)
+ml_feature_importances(model6)
+
+# Assess the accuracy of the trees
+pred5 <- ml_predict(model5, wikitopic)
+pred6 <- ml_predict(model6, wikitopic)
+
+# accuracy
+ml_multiclass_classification_evaluator(pred5, metric_name = "accuracy")
+ml_multiclass_classification_evaluator(pred6, metric_name = "accuracy")
+
+# F1-score
+ml_multiclass_classification_evaluator(pred5)
+ml_multiclass_classification_evaluator(pred6)
+
+# Save trees and construct the tree structures
+ml_save(model5, path = here::here("decisiontree.popular"))
+ml_save(model6, path = here::here("decisiontree.popular.dep3"))
+
+treespecraw <- spark_read_parquet(sc, here::here("decisiontree.popular/stages/1_decision_ tree__4150aaf2_cedb_4a96_b517_068448de0d8e/data"))
+treespecraw <- spark_read_parquet(sc, here::here("decisiontree.popular.dep3/stages/1_ decision_tree__3862bfd1_9258_48c3_a169_3c6032409ef0/data"))
+
+# the code below is same for two trees
+treespec <- collect(treespecraw) 
+splitvalues <- treespec$split %>% sapply(., function(x) {
+  id <- sapply(x, is_empty)
+  x <- ifelse(id, -99, x)
+}) %>% 
+  unlist()
+
+treespec %<>% 
+  mutate(featureIndex = splitvalues[seq(1, 3 * nrow(treespec), 3)], 
+         leftCategoriesOrThreshold = splitvalues[seq(2, 3 * nrow(treespec), 3)], 
+         numCategories = splitvalues[seq(3, 3 * nrow(treespec), 3)]) %>%
+  dplyr::select(-split, -impurityStats)
+
+featurenames <- data.frame(featureIndex = 0:3, name = model5$feature_names)
+
+treestructure <- treespec %>%
+  left_join(featurenames, by = "featureIndex")
+```
+
+
+
